@@ -31,6 +31,8 @@ as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
 
 import re
 import random
+import socket
+from threading import Timer
 
 from sys import version_info
 
@@ -104,6 +106,8 @@ class IPgetter(object):
                             'http://ipinfo.io/',
                             'http://httpbin.org/ip']
 
+        self.timeout = 2.0
+
     def get_externalip(self):
         '''
         This function gets your IP from a random server
@@ -119,17 +123,36 @@ class IPgetter(object):
                 continue
         return ''
 
+    def handle_timeout(self, url):
+        if url:
+            url.close()
+        raise socket.timeout("Timed out.")
+
     def fetch(self, server):
         '''
         This function gets your IP from a specific server
         '''
-        url = None
+        url = t = None
+        socket_default_timeout = socket.getdefaulttimeout()
         opener = urllib.build_opener()
         opener.addheaders = [('User-agent',
                               "Mozilla/5.0 (X11; Linux x86_64; rv:24.0) Gecko/20100101 Firefox/24.0")]
 
         try:
-            url = opener.open(server, timeout=2)    
+            #Open URL.
+            if version_info[0:2] == (2, 5):
+                #Support for Python 2.5.* using socket hack
+                #(Changes global socket timeout.)
+                socket.setdefaulttimeout(self.timeout)
+                url = opener.open(server)
+            else:
+                url = opener.open(server, timeout=self.timeout)
+
+            #Close url resource if fetching not finished within timeout.
+            t = Timer(self.timeout, self.handle_timeout, [url])
+            t.start()
+    
+            #Read response.
             content = url.read()
 
             # Didn't want to import chardet. Prefered to stick to stdlib
@@ -143,12 +166,21 @@ class IPgetter(object):
                 '(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
                 content)
             myip = m.group(0)
-            return myip if len(myip) > 0 else ''
+            if len(myip) > 0:
+                return myip
+            else:
+                return ''
         except Exception:
             return ''
         finally:
             if url:
                 url.close()
+            if t != None:
+                t.cancel()
+
+            #Reset default socket timeout.
+            if socket.getdefaulttimeout() != socket_default_timeout:
+                socket.setdefaulttimeout(socket_default_timeout)
 
     def test(self):
         '''
