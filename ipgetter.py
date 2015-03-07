@@ -126,7 +126,6 @@ class IPgetter(object):
     def handle_timeout(self, url):
         if url:
             url.close()
-        raise socket.timeout("Timed out.")
 
     def fetch(self, server):
         '''
